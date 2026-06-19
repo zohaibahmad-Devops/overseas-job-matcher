@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Overseas Job Matcher</title>
+<meta name="description" content="AI-powered matcher for visa-sponsored software/IT roles abroad." />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        colors: { brand: { 50:'#eef4ff',100:'#d9e6ff',500:'#3b6cf6',600:'#2f55d4',700:'#2645ab' } }
+      }
+    }
+  }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  body { font-family: 'Inter', system-ui, sans-serif; }
+  .spin { animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  textarea { resize: vertical; }
+  /* simple fade-in for cards */
+  .fade-in { animation: fade .35s ease both; }
+  @keyframes fade { from { opacity:0; transform: translateY(6px);} to {opacity:1; transform:none;} }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+<!-- Header -->
+<header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+  <div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+    <div class="flex items-center gap-2 mr-auto">
+      <span class="text-2xl">🌍</span>
+      <div>
+        <h1 class="text-lg font-extrabold leading-none">Overseas Job Matcher</h1>
+        <p class="text-xs text-slate-500">Visa-sponsored software / IT roles, matched to your resume</p>
+      </div>
+    </div>
+    <select id="modelSelect" class="text-sm border border-slate-300 rounded-lg px-2 py-2 bg-white" title="Model — affects cost & quality">
+      <option value="claude-sonnet-4-6">Sonnet 4.6 · balanced</option>
+      <option value="claude-haiku-4-5">Haiku 4.5 · cheapest</option>
+      <option value="claude-opus-4-8">Opus 4.8 · best</option>
+    </select>
+    <button id="keyBtn" class="text-sm font-medium border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100 flex items-center gap-1">
+      🔑 <span id="keyLabel">API key</span>
+    </button>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-4 py-6 grid lg:grid-cols-[380px_1fr] gap-6">
+
+  <!-- LEFT: input panel -->
+  <section class="space-y-4">
+    <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+      <label class="block text-sm font-semibold mb-1">Your résumé</label>
+      <p class="text-xs text-slate-500 mb-2">Paste the full text. Stored only in this browser.</p>
+      <textarea id="resume" rows="12" placeholder="Paste your résumé / CV text here…"
+        class="w-full text-sm border border-slate-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+
+      <label class="block text-sm font-semibold mt-4 mb-1">Target locations</label>
+      <div id="locChips" class="flex flex-wrap gap-2 mb-2"></div>
+      <input id="locCustom" type="text" placeholder="Add custom, e.g. Dubai, Berlin, Toronto"
+        class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+
+      <label class="block text-sm font-semibold mt-4 mb-1">Extra preferences <span class="font-normal text-slate-400">(optional)</span></label>
+      <input id="prefs" type="text" placeholder="e.g. backend .NET, remote ok, min $70k, no agencies"
+        class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+
+      <button id="searchBtn" class="mt-4 w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-lg px-4 py-3 flex items-center justify-center gap-2 disabled:opacity-50">
+        <span id="searchSpin" class="hidden w-4 h-4 border-2 border-white/40 border-t-white rounded-full spin"></span>
+        <span id="searchText">🔎 Find matching jobs</span>
+      </button>
+      <p class="text-[11px] text-slate-400 mt-2 text-center">Each search runs a live web search — typically a few cents.</p>
+    </div>
+
+    <!-- Tracker -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-sm font-semibold">📌 Tracked applications</h2>
+        <button id="csvBtn" class="text-xs font-medium text-brand-600 hover:underline">Export CSV</button>
+      </div>
+      <div id="trackerList" class="space-y-2 text-sm text-slate-500">No tracked jobs yet.</div>
+    </div>
+  </section>
+
+  <!-- RIGHT: results -->
+  <section>
+    <div id="statusBar" class="hidden mb-4 rounded-xl px-4 py-3 text-sm"></div>
+    <div id="results" class="grid sm:grid-cols-2 gap-4"></div>
+    <div id="empty" class="text-center text-slate-400 py-20">
+      <div class="text-5xl mb-3">🧭</div>
+      <p class="font-medium">Your matched jobs will appear here.</p>
+      <p class="text-sm">Paste your résumé, pick locations, and hit <b>Find matching jobs</b>.</p>
+    </div>
+  </section>
+</main>
+
+<!-- API key modal -->
+<div id="keyModal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl">
+    <h3 class="font-bold text-lg mb-1">Anthropic API key</h3>
+    <p class="text-sm text-slate-500 mb-3">Get one at <a class="text-brand-600 underline" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. It's stored only in your browser's localStorage and sent directly to Anthropic.</p>
+    <input id="keyInput" type="password" placeholder="sk-ant-…" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+    <div class="flex justify-end gap-2">
+      <button id="keyClear" class="text-sm px-3 py-2 rounded-lg text-red-600 hover:bg-red-50 mr-auto">Clear key</button>
+      <button id="keyCancel" class="text-sm px-3 py-2 rounded-lg hover:bg-slate-100">Cancel</button>
+      <button id="keySave" class="text-sm px-4 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tailor modal -->
+<div id="tailorModal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl max-w-2xl w-full p-5 shadow-xl max-h-[85vh] overflow-auto">
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="font-bold text-lg">✍️ Tailored résumé suggestions</h3>
+      <button id="tailorClose" class="text-slate-400 hover:text-slate-700 text-xl leading-none">&times;</button>
+    </div>
+    <p id="tailorFor" class="text-sm text-slate-500 mb-3"></p>
+    <div id="tailorBody" class="prose prose-sm max-w-none text-sm whitespace-pre-wrap text-slate-700"></div>
+  </div>
+</div>
+
+<footer class="text-center text-xs text-slate-400 py-8">
+  Runs entirely in your browser · Powered by the Anthropic API with web search ·
+  <a href="https://github.com" class="underline" id="repoLink" target="_blank" rel="noopener">source</a>
+</footer>
+
+<script>
+/* ---------------- storage helpers ---------------- */
+const LS = {
+  key:   'ojm_api_key',
+  model: 'ojm_model',
+  resume:'ojm_resume',
+  locs:  'ojm_locs',
+  apps:  'ojm_apps'   // { jobId: { status, notes, job } }
+};
+const get = (k, d=null) => { try { const v = localStorage.getItem(k); return v===null?d:v; } catch(e){ return d; } };
+const set = (k, v) => { try { localStorage.setItem(k, v); } catch(e){} };
+const getJSON = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch(e){ return d; } };
+const setJSON = (k, v) => set(k, JSON.stringify(v));
+
+/* ---------------- el refs ---------------- */
+const $ = (id) => document.getElementById(id);
+const resumeEl = $('resume'), prefsEl = $('prefs'), locCustomEl = $('locCustom');
+const resultsEl = $('results'), emptyEl = $('empty'), statusBar = $('statusBar');
+const modelSelect = $('modelSelect');
+
+/* ---------------- locations ---------------- */
+const PRESET_LOCS = [
+  'UAE / Gulf (Dubai, Abu Dhabi, Qatar, Saudi Arabia)',
+  'Netherlands',
+  'United Kingdom',
+  'Germany',
+  'Australia',
+  'New Zealand',
+  'Canada',
+  'Ireland'
+];
+let selectedLocs = getJSON(LS.locs, ['UAE / Gulf (Dubai, Abu Dhabi, Qatar, Saudi Arabia)','Netherlands']);
+
+function renderLocChips() {
+  $('locChips').innerHTML = '';
+  PRESET_LOCS.forEach(loc => {
+    const on = selectedLocs.includes(loc);
+    const b = document.createElement('button');
+    b.className = 'text-xs px-2.5 py-1 rounded-full border ' +
+      (on ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100');
+    b.textContent = loc.split(' (')[0];
+    b.onclick = () => {
+      if (on) selectedLocs = selectedLocs.filter(l => l !== loc);
+      else selectedLocs.push(loc);
+      setJSON(LS.locs, selectedLocs);
+      renderLocChips();
+    };
+    $('locChips').appendChild(b);
+  });
+}
+
+/* ---------------- init from storage ---------------- */
+function init() {
+  resumeEl.value = get(LS.resume, '');
+  const savedModel = get(LS.model);
+  if (savedModel) modelSelect.value = savedModel;
+  renderLocChips();
+  renderTracker();
+  updateKeyLabel();
+}
+resumeEl.addEventListener('input', () => set(LS.resume, resumeEl.value));
+modelSelect.addEventListener('change', () => set(LS.model, modelSelect.value));
+
+/* ---------------- API key modal ---------------- */
+function updateKeyLabel(){ $('keyLabel').textContent = get(LS.key) ? 'API key ✓' : 'API key'; }
+$('keyBtn').onclick = () => { $('keyInput').value = get(LS.key, ''); $('keyModal').classList.remove('hidden'); };
+$('keyCancel').onclick = () => $('keyModal').classList.add('hidden');
+$('keySave').onclick = () => { set(LS.key, $('keyInput').value.trim()); updateKeyLabel(); $('keyModal').classList.add('hidden'); };
+$('keyClear').onclick = () => { localStorage.removeItem(LS.key); $('keyInput').value=''; updateKeyLabel(); };
+
+/* ---------------- status bar ---------------- */
+function showStatus(msg, type='info') {
+  const colors = {
+    info:  'bg-blue-50 text-blue-700 border border-blue-200',
+    error: 'bg-red-50 text-red-700 border border-red-200',
+    ok:    'bg-green-50 text-green-700 border border-green-200'
+  };
+  statusBar.className = 'mb-4 rounded-xl px-4 py-3 text-sm ' + colors[type];
+  statusBar.innerHTML = msg;
+  statusBar.classList.remove('hidden');
+}
+function hideStatus(){ statusBar.classList.add('hidden'); }
+
+/* ---------------- Anthropic API ---------------- */
+const API_URL = 'https://api.anthropic.com/v1/messages';
+
+async function callAnthropic(body) {
+  const apiKey = get(LS.key);
+  if (!apiKey) throw new Error('NO_KEY');
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    const m = data?.error?.message || ('HTTP ' + res.status);
+    throw new Error(m);
+  }
+  return data;
+}
+
+// Collect all text from content blocks
+function textOf(content){
+  return (content||[]).filter(b => b.type === 'text').map(b => b.text).join('\n');
+}
+
+// Extract a JSON object from model text (fenced block or first {...})
+function extractJSON(text){
+  let m = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  let candidate = m ? m[1] : null;
+  if (!candidate) {
+    const s = text.indexOf('{'); const e = text.lastIndexOf('}');
+    if (s !== -1 && e !== -1 && e > s) candidate = text.slice(s, e+1);
+  }
+  if (!candidate) return null;
+  try { return JSON.parse(candidate); } catch(e) { return null; }
+}
+
+/* ---------------- search ---------------- */
+$('searchBtn').onclick = runSearch;
+
+function setLoading(on){
+  $('searchBtn').disabled = on;
+  $('searchSpin').classList.toggle('hidden', !on);
+  $('searchText').textContent = on ? 'Searching the web…' : '🔎 Find matching jobs';
+}
+
+async function runSearch() {
+  const resume = resumeEl.value.trim();
+  const locs = [...selectedLocs];
+  const custom = locCustomEl.value.trim();
+  if (custom) locs.push(...custom.split(',').map(s=>s.trim()).filter(Boolean));
+
+  if (!get(LS.key)) { showStatus('Add your Anthropic API key first (🔑 button, top right).', 'error'); return; }
+  if (resume.length < 60) { showStatus('Please paste a fuller résumé so matches are accurate.', 'error'); return; }
+  if (!locs.length) { showStatus('Pick at least one target location.', 'error'); return; }
+
+  const model = modelSelect.value;
+  const webSearchVersion = model.includes('haiku') ? 'web_search_20250305' : 'web_search_20260209';
+  const prefs = prefsEl.value.trim();
+
+  setLoading(true);
+  hideStatus();
+  showStatus('Searching live job listings and scoring fit… this can take 20–60 seconds.', 'info');
+
+  const system = `You are an expert technical recruiter and career coach specializing in international, visa-sponsored software and IT roles. You use web search to find REAL, CURRENTLY-OPEN job postings, then score how well each fits the candidate. Be honest and specific. Only include roles that plausibly sponsor work visas / relocation for the given locations. Prefer postings from the last ~45 days.`;
+
+  const userPrompt =
+`CANDIDATE RÉSUMÉ:
+"""
+${resume}
+"""
+
+TARGET LOCATIONS: ${locs.join('; ')}
+${prefs ? 'EXTRA PREFERENCES: ' + prefs + '\n' : ''}
+TASK:
+1. Use web search to find 8–12 currently-open software / IT job postings in the target locations that are a strong fit for this candidate and likely offer visa sponsorship or relocation.
+2. Score each from 0–100 for fit against the résumé.
+3. For each, identify concrete matching skills and honest gaps.
+
+Return ONLY a single JSON object (no commentary outside it), in a \`\`\`json code block, with this exact shape:
+{
+  "jobs": [
+    {
+      "title": "string",
+      "company": "string",
+      "location": "string",
+      "url": "direct link to the posting if known, else null",
+      "salary": "string or null",
+      "visa_sponsorship": "Yes" | "Likely" | "Unclear" | "No",
+      "posted": "short recency note, e.g. '3 days ago' or 'Jan 2026'",
+      "fit_score": 0,
+      "fit_summary": "one concise sentence on why this fits",
+      "matching_skills": ["..."],
+      "gaps": ["..."]
+    }
+  ]
+}
+Sort jobs by fit_score descending. Keep summaries concise.`;
+
+  try {
+    let messages = [{ role:'user', content: userPrompt }];
+    let data;
+    for (let i = 0; i < 6; i++) {
+      data = await callAnthropic({
+        model,
+        max_tokens: 12000,
+        system,
+        tools: [{ type: webSearchVersion, name: 'web_search', max_uses: 8 }],
+        messages
+      });
+      if (data.stop_reason === 'pause_turn') { messages.push({ role:'assistant', content: data.content }); continue; }
+      break;
+    }
+
+    if (data.stop_reason === 'refusal') {
+      showStatus('The model declined this request. Try rephrasing your résumé/preferences.', 'error');
+      return;
+    }
+
+    const text = textOf(data.content);
+    const parsed = extractJSON(text);
+    if (!parsed || !Array.isArray(parsed.jobs)) {
+      showStatus('Got a response but could not parse jobs from it. Try again or switch model.', 'error');
+      console.warn('Raw model text:', text);
+      return;
+    }
+
+    renderResults(parsed.jobs);
+    showStatus(`Found ${parsed.jobs.length} matches. Set a status on any card to track it.`, 'ok');
+  } catch (err) {
+    if (err.message === 'NO_KEY') showStatus('Add your Anthropic API key first (🔑 button).', 'error');
+    else showStatus('Error: ' + err.message, 'error');
+    console.error(err);
+  } finally {
+    setLoading(false);
+  }
+}
+
+/* ---------------- render results ---------------- */
+function jobId(job){
+  return (job.url && job.url !== 'null') ? job.url : (job.title + '|' + job.company);
+}
+function scoreColor(s){
+  if (s >= 80) return 'text-green-600 bg-green-50';
+  if (s >= 60) return 'text-amber-600 bg-amber-50';
+  return 'text-slate-500 bg-slate-100';
+}
+function visaBadge(v){
+  const map = { 'Yes':'bg-green-100 text-green-700', 'Likely':'bg-emerald-100 text-emerald-700',
+    'Unclear':'bg-amber-100 text-amber-700', 'No':'bg-red-100 text-red-700' };
+  return `<span class="text-[11px] px-2 py-0.5 rounded-full ${map[v]||'bg-slate-100 text-slate-600'}">Visa: ${v||'?'}</span>`;
+}
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+let lastJobs = [];
+function renderResults(jobs){
+  lastJobs = jobs;
+  emptyEl.classList.add('hidden');
+  resultsEl.innerHTML = '';
+  const apps = getJSON(LS.apps, {});
+  jobs.forEach((job, idx) => {
+    const id = jobId(job);
+    const saved = apps[id] || {};
+    const card = document.createElement('div');
+    card.className = 'fade-in bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col';
+    const skills = (job.matching_skills||[]).map(s=>`<span class="text-[11px] px-2 py-0.5 rounded-md bg-brand-50 text-brand-700">${esc(s)}</span>`).join(' ');
+    const gaps = (job.gaps||[]).map(s=>`<li>${esc(s)}</li>`).join('');
+    card.innerHTML = `
+      <div class="flex items-start gap-3">
+        <div class="flex-1 min-w-0">
+          <h3 class="font-bold leading-snug">${esc(job.title)}</h3>
+          <p class="text-sm text-slate-600">${esc(job.company)} · ${esc(job.location)}</p>
+        </div>
+        <div class="shrink-0 text-center rounded-xl px-2.5 py-1 ${scoreColor(job.fit_score)}">
+          <div class="text-lg font-extrabold leading-none">${Number(job.fit_score)||0}</div>
+          <div class="text-[10px] uppercase tracking-wide">fit</div>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-1.5 mt-2">
+        ${visaBadge(job.visa_sponsorship)}
+        ${job.salary && job.salary!=='null' ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">💷 ${esc(job.salary)}</span>`:''}
+        ${job.posted ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">🕑 ${esc(job.posted)}</span>`:''}
+      </div>
+      <p class="text-sm text-slate-700 mt-2">${esc(job.fit_summary)}</p>
+      ${skills ? `<div class="flex flex-wrap gap-1 mt-2">${skills}</div>`:''}
+      ${gaps ? `<details class="mt-2 text-xs text-slate-500"><summary class="cursor-pointer select-none">Gaps to address</summary><ul class="list-disc ml-4 mt-1 space-y-0.5">${gaps}</ul></details>`:''}
+      <div class="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+        ${job.url && job.url!=='null' ? `<a href="${esc(job.url)}" target="_blank" rel="noopener" class="text-xs font-medium text-brand-600 hover:underline">Open posting ↗</a>`:''}
+        <button class="tailorBtn text-xs font-medium text-slate-600 hover:text-brand-600" data-idx="${idx}">✍️ Tailor résumé</button>
+        <select class="statusSel ml-auto text-xs border border-slate-300 rounded-lg px-2 py-1" data-id="${esc(id)}">
+          ${['Not applied','Applied','Interview','Offer','Rejected'].map(s=>`<option ${saved.status===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+      <textarea class="notesArea mt-2 w-full text-xs border border-slate-200 rounded-lg p-2 hidden" data-id="${esc(id)}" rows="2" placeholder="Notes: recruiter contact, deadline, interview prep…">${esc(saved.notes||'')}</textarea>
+    `;
+    resultsEl.appendChild(card);
+
+    // show notes if tracked
+    if (saved.status && saved.status !== 'Not applied') card.querySelector('.notesArea').classList.remove('hidden');
+  });
+
+  // wire events
+  resultsEl.querySelectorAll('.statusSel').forEach(sel => sel.onchange = onStatusChange);
+  resultsEl.querySelectorAll('.notesArea').forEach(t => t.oninput = onNotesChange);
+  resultsEl.querySelectorAll('.tailorBtn').forEach(b => b.onclick = () => tailorResume(lastJobs[+b.dataset.idx]));
+}
+
+function findJobById(id){ return lastJobs.find(j => jobId(j) === id); }
+
+function onStatusChange(e){
+  const id = e.target.dataset.id;
+  const status = e.target.value;
+  const apps = getJSON(LS.apps, {});
+  const job = findJobById(id);
+  if (status === 'Not applied') {
+    if (apps[id]) { delete apps[id]; }
+  } else {
+    apps[id] = { ...(apps[id]||{}), status, job };
+  }
+  setJSON(LS.apps, apps);
+  // toggle notes visibility
+  const notes = resultsEl.querySelector(`.notesArea[data-id="${cssEsc(id)}"]`);
+  if (notes) notes.classList.toggle('hidden', status === 'Not applied');
+  renderTracker();
+}
+function onNotesChange(e){
+  const id = e.target.dataset.id;
+  const apps = getJSON(LS.apps, {});
+  if (apps[id]) { apps[id].notes = e.target.value; setJSON(LS.apps, apps); renderTracker(); }
+}
+function cssEsc(s){ return (window.CSS && CSS.escape) ? CSS.escape(s) : s.replace(/["\\]/g,'\\$&'); }
+
+/* ---------------- tracker ---------------- */
+function renderTracker(){
+  const apps = getJSON(LS.apps, {});
+  const ids = Object.keys(apps);
+  const list = $('trackerList');
+  if (!ids.length) { list.innerHTML = '<p class="text-slate-400">No tracked jobs yet.</p>'; return; }
+  const pill = { 'Applied':'bg-blue-100 text-blue-700','Interview':'bg-purple-100 text-purple-700','Offer':'bg-green-100 text-green-700','Rejected':'bg-red-100 text-red-700' };
+  list.innerHTML = ids.map(id => {
+    const a = apps[id]; const j = a.job || {};
+    return `<div class="flex items-center gap-2 text-slate-700">
+      <span class="text-[11px] px-2 py-0.5 rounded-full ${pill[a.status]||'bg-slate-100'}">${esc(a.status)}</span>
+      <span class="truncate flex-1">${esc(j.title||id)} <span class="text-slate-400">· ${esc(j.company||'')}</span></span>
+    </div>`;
+  }).join('');
+}
+
+$('csvBtn').onclick = () => {
+  const apps = getJSON(LS.apps, {});
+  const rows = [['Status','Title','Company','Location','Fit','Visa','Salary','URL','Notes']];
+  Object.values(apps).forEach(a => {
+    const j = a.job || {};
+    rows.push([a.status, j.title, j.company, j.location, j.fit_score, j.visa_sponsorship, j.salary, j.url, (a.notes||'').replace(/\n/g,' ')]);
+  });
+  if (rows.length === 1) { showStatus('No tracked jobs to export yet.', 'info'); return; }
+  const csv = rows.map(r => r.map(c => `"${String(c==null?'':c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type:'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'tracked-jobs.csv';
+  a.click();
+};
+
+/* ---------------- tailor résumé ---------------- */
+async function tailorResume(job){
+  if (!get(LS.key)) { showStatus('Add your Anthropic API key first (🔑 button).', 'error'); return; }
+  const resume = resumeEl.value.trim();
+  $('tailorFor').textContent = `For: ${job.title} @ ${job.company}`;
+  $('tailorBody').textContent = 'Generating tailored suggestions…';
+  $('tailorModal').classList.remove('hidden');
+  try {
+    const data = await callAnthropic({
+      model: modelSelect.value,
+      max_tokens: 2000,
+      system: 'You are a concise resume coach. Output plain text with short sections and bullet points. No preamble.',
+      messages: [{ role:'user', content:
+`Tailor this candidate's résumé for the target role. Give: (1) a 2-3 line professional summary aimed at this role, (2) 4-6 rewritten/added résumé bullet points emphasizing the most relevant experience, (3) keywords to include for ATS, (4) the top 1-2 gaps to address.
+
+TARGET ROLE: ${job.title} at ${job.company} (${job.location})
+ROLE FIT NOTES: ${job.fit_summary||''}
+KNOWN GAPS: ${(job.gaps||[]).join('; ')}
+
+RÉSUMÉ:
+"""
+${resume}
+"""` }]
+    });
+    $('tailorBody').textContent = textOf(data.content) || 'No suggestions returned.';
+  } catch(err){
+    $('tailorBody').textContent = 'Error: ' + err.message;
+  }
+}
+$('tailorClose').onclick = () => $('tailorModal').classList.add('hidden');
+
+/* close modals on backdrop click */
+[ 'keyModal','tailorModal' ].forEach(id => {
+  $(id).addEventListener('click', e => { if (e.target.id === id) $(id).classList.add('hidden'); });
+});
+
+init();
+</script>
+</body>
+</html>
