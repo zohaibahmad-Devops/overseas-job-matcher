@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Overseas Job Matcher</title>
-<meta name="description" content="AI-powered matcher for visa-sponsored software/IT roles abroad." />
+<meta name="description" content="Free AI matcher for visa-sponsored software/IT roles abroad — powered by Google Gemini." />
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
@@ -23,7 +23,6 @@
   .spin { animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   textarea { resize: vertical; }
-  /* simple fade-in for cards */
   .fade-in { animation: fade .35s ease both; }
   @keyframes fade { from { opacity:0; transform: translateY(6px);} to {opacity:1; transform:none;} }
 </style>
@@ -37,13 +36,12 @@
       <span class="text-2xl">🌍</span>
       <div>
         <h1 class="text-lg font-extrabold leading-none">Overseas Job Matcher</h1>
-        <p class="text-xs text-slate-500">Visa-sponsored software / IT roles, matched to your resume</p>
+        <p class="text-xs text-slate-500">Free · visa-sponsored software / IT roles, matched to your résumé</p>
       </div>
     </div>
-    <select id="modelSelect" class="text-sm border border-slate-300 rounded-lg px-2 py-2 bg-white" title="Model — affects cost & quality">
-      <option value="claude-sonnet-4-6">Sonnet 4.6 · balanced</option>
-      <option value="claude-haiku-4-5">Haiku 4.5 · cheapest</option>
-      <option value="claude-opus-4-8">Opus 4.8 · best</option>
+    <select id="modelSelect" class="text-sm border border-slate-300 rounded-lg px-2 py-2 bg-white" title="Model">
+      <option value="gemini-2.5-flash">Gemini 2.5 Flash · best (free)</option>
+      <option value="gemini-2.0-flash">Gemini 2.0 Flash · fast (free)</option>
     </select>
     <button id="keyBtn" class="text-sm font-medium border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100 flex items-center gap-1">
       🔑 <span id="keyLabel">API key</span>
@@ -74,7 +72,7 @@
         <span id="searchSpin" class="hidden w-4 h-4 border-2 border-white/40 border-t-white rounded-full spin"></span>
         <span id="searchText">🔎 Find matching jobs</span>
       </button>
-      <p class="text-[11px] text-slate-400 mt-2 text-center">Each search runs a live web search — typically a few cents.</p>
+      <p class="text-[11px] text-slate-400 mt-2 text-center">Runs a live Google Search via Gemini — free.</p>
     </div>
 
     <!-- Tracker -->
@@ -102,9 +100,9 @@
 <!-- API key modal -->
 <div id="keyModal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
   <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl">
-    <h3 class="font-bold text-lg mb-1">Anthropic API key</h3>
-    <p class="text-sm text-slate-500 mb-3">Get one at <a class="text-brand-600 underline" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. It's stored only in your browser's localStorage and sent directly to Anthropic.</p>
-    <input id="keyInput" type="password" placeholder="sk-ant-…" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+    <h3 class="font-bold text-lg mb-1">Google Gemini API key <span class="text-green-600 text-sm font-semibold">(free)</span></h3>
+    <p class="text-sm text-slate-500 mb-3">Get a free key at <a class="text-brand-600 underline" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> — just sign in with Google, click <b>Create API key</b>. No credit card needed. It's stored only in your browser and sent directly to Google.</p>
+    <input id="keyInput" type="password" placeholder="AIza…" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-brand-500" />
     <div class="flex justify-end gap-2">
       <button id="keyClear" class="text-sm px-3 py-2 rounded-lg text-red-600 hover:bg-red-50 mr-auto">Clear key</button>
       <button id="keyCancel" class="text-sm px-3 py-2 rounded-lg hover:bg-slate-100">Cancel</button>
@@ -126,14 +124,14 @@
 </div>
 
 <footer class="text-center text-xs text-slate-400 py-8">
-  Runs entirely in your browser · Powered by the Anthropic API with web search ·
-  <a href="https://github.com/zohaibahmad-Devops/overseas-job-matcher" class="underline" id="repoLink" target="_blank" rel="noopener">source</a>
+  Runs entirely in your browser · Powered by Google Gemini with Google Search ·
+  <a href="https://github.com/zohaibahmad-Devops/overseas-job-matcher" class="underline" target="_blank" rel="noopener">source</a>
 </footer>
 
 <script>
 /* ---------------- storage helpers ---------------- */
 const LS = {
-  key:   'ojm_api_key',
+  key:   'ojm_gemini_key',
   model: 'ojm_model',
   resume:'ojm_resume',
   locs:  'ojm_locs',
@@ -185,7 +183,7 @@ function renderLocChips() {
 function init() {
   resumeEl.value = get(LS.resume, '');
   const savedModel = get(LS.model);
-  if (savedModel) modelSelect.value = savedModel;
+  if (savedModel && [...modelSelect.options].some(o=>o.value===savedModel)) modelSelect.value = savedModel;
   renderLocChips();
   renderTracker();
   updateKeyLabel();
@@ -213,34 +211,41 @@ function showStatus(msg, type='info') {
 }
 function hideStatus(){ statusBar.classList.add('hidden'); }
 
-/* ---------------- Anthropic API ---------------- */
-const API_URL = 'https://api.anthropic.com/v1/messages';
+/* ---------------- Gemini API ---------------- */
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
 
-async function callAnthropic(body) {
+async function callGemini({ model, system, user, useSearch=false, maxTokens=8192 }) {
   const apiKey = get(LS.key);
   if (!apiKey) throw new Error('NO_KEY');
-  const res = await fetch(API_URL, {
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: user }] }],
+    generationConfig: { temperature: 0.5, maxOutputTokens: maxTokens }
+  };
+  if (system) body.system_instruction = { parts: [{ text: system }] };
+  if (useSearch) body.tools = [{ google_search: {} }];
+  // 2.5 models think by default; disable to keep all output budget for the answer
+  if (model.startsWith('gemini-2.5')) body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+
+  const res = await fetch(GEMINI_BASE + encodeURIComponent(model) + ':generateContent', {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify(body)
   });
   const data = await res.json();
-  if (!res.ok) {
-    const m = data?.error?.message || ('HTTP ' + res.status);
-    throw new Error(m);
-  }
+  if (!res.ok) throw new Error(data?.error?.message || ('HTTP ' + res.status));
   return data;
 }
 
-// Collect all text from content blocks
-function textOf(content){
-  return (content||[]).filter(b => b.type === 'text').map(b => b.text).join('\n');
+function geminiText(data){
+  const cand = data?.candidates?.[0];
+  if (!cand) {
+    if (data?.promptFeedback?.blockReason) throw new Error('Blocked: ' + data.promptFeedback.blockReason);
+    return '';
+  }
+  const parts = cand.content?.parts || [];
+  return parts.map(p => p.text || '').join('\n');
 }
+function finishReasonOf(data){ return data?.candidates?.[0]?.finishReason || ''; }
 
 // Extract a JSON object from model text (fenced block or first {...})
 function extractJSON(text){
@@ -269,19 +274,18 @@ async function runSearch() {
   const custom = locCustomEl.value.trim();
   if (custom) locs.push(...custom.split(',').map(s=>s.trim()).filter(Boolean));
 
-  if (!get(LS.key)) { showStatus('Add your Anthropic API key first (🔑 button, top right).', 'error'); return; }
+  if (!get(LS.key)) { showStatus('Add your free Gemini API key first (🔑 button, top right).', 'error'); return; }
   if (resume.length < 60) { showStatus('Please paste a fuller résumé so matches are accurate.', 'error'); return; }
   if (!locs.length) { showStatus('Pick at least one target location.', 'error'); return; }
 
   const model = modelSelect.value;
-  const webSearchVersion = model.includes('haiku') ? 'web_search_20250305' : 'web_search_20260209';
   const prefs = prefsEl.value.trim();
 
   setLoading(true);
   hideStatus();
   showStatus('Searching live job listings and scoring fit… this can take 20–60 seconds.', 'info');
 
-  const system = `You are an expert technical recruiter and career coach specializing in international, visa-sponsored software and IT roles. You use web search to find REAL, CURRENTLY-OPEN job postings, then score how well each fits the candidate. Be honest and specific. Only include roles that plausibly sponsor work visas / relocation for the given locations. Prefer postings from the last ~45 days.`;
+  const system = `You are an expert technical recruiter and career coach specializing in international, visa-sponsored software and IT roles. Use Google Search to find REAL, CURRENTLY-OPEN job postings, then score how well each fits the candidate. Be honest and specific. Only include roles that plausibly sponsor work visas / relocation for the given locations. Prefer postings from the last ~45 days. Always reply with a single JSON object inside a \`\`\`json code block and nothing else.`;
 
   const userPrompt =
 `CANDIDATE RÉSUMÉ:
@@ -292,11 +296,11 @@ ${resume}
 TARGET LOCATIONS: ${locs.join('; ')}
 ${prefs ? 'EXTRA PREFERENCES: ' + prefs + '\n' : ''}
 TASK:
-1. Use web search to find 8–12 currently-open software / IT job postings in the target locations that are a strong fit for this candidate and likely offer visa sponsorship or relocation.
+1. Use Google Search to find 8–12 currently-open software / IT job postings in the target locations that strongly fit this candidate and likely offer visa sponsorship or relocation.
 2. Score each from 0–100 for fit against the résumé.
 3. For each, identify concrete matching skills and honest gaps.
 
-Return ONLY a single JSON object (no commentary outside it), in a \`\`\`json code block, with this exact shape:
+Return ONLY a single JSON object in a \`\`\`json code block, with this exact shape:
 {
   "jobs": [
     {
@@ -314,40 +318,25 @@ Return ONLY a single JSON object (no commentary outside it), in a \`\`\`json cod
     }
   ]
 }
-Sort jobs by fit_score descending. Keep summaries concise.`;
+Sort jobs by fit_score descending. Keep summaries concise. Output only the JSON code block.`;
 
   try {
-    let messages = [{ role:'user', content: userPrompt }];
-    let data;
-    for (let i = 0; i < 6; i++) {
-      data = await callAnthropic({
-        model,
-        max_tokens: 12000,
-        system,
-        tools: [{ type: webSearchVersion, name: 'web_search', max_uses: 8 }],
-        messages
-      });
-      if (data.stop_reason === 'pause_turn') { messages.push({ role:'assistant', content: data.content }); continue; }
-      break;
-    }
-
-    if (data.stop_reason === 'refusal') {
-      showStatus('The model declined this request. Try rephrasing your résumé/preferences.', 'error');
-      return;
-    }
-
-    const text = textOf(data.content);
+    const data = await callGemini({ model, system, user: userPrompt, useSearch: true, maxTokens: 8192 });
+    const text = geminiText(data);
     const parsed = extractJSON(text);
     if (!parsed || !Array.isArray(parsed.jobs)) {
-      showStatus('Got a response but could not parse jobs from it. Try again or switch model.', 'error');
+      if (finishReasonOf(data) === 'MAX_TOKENS') {
+        showStatus('Response was too long and got cut off. Try the faster model or fewer locations.', 'error');
+      } else {
+        showStatus('Got a response but could not parse jobs from it. Try again.', 'error');
+      }
       console.warn('Raw model text:', text);
       return;
     }
-
     renderResults(parsed.jobs);
     showStatus(`Found ${parsed.jobs.length} matches. Set a status on any card to track it.`, 'ok');
   } catch (err) {
-    if (err.message === 'NO_KEY') showStatus('Add your Anthropic API key first (🔑 button).', 'error');
+    if (err.message === 'NO_KEY') showStatus('Add your free Gemini API key first (🔑 button).', 'error');
     else showStatus('Error: ' + err.message, 'error');
     console.error(err);
   } finally {
@@ -413,12 +402,9 @@ function renderResults(jobs){
       <textarea class="notesArea mt-2 w-full text-xs border border-slate-200 rounded-lg p-2 hidden" data-id="${esc(id)}" rows="2" placeholder="Notes: recruiter contact, deadline, interview prep…">${esc(saved.notes||'')}</textarea>
     `;
     resultsEl.appendChild(card);
-
-    // show notes if tracked
     if (saved.status && saved.status !== 'Not applied') card.querySelector('.notesArea').classList.remove('hidden');
   });
 
-  // wire events
   resultsEl.querySelectorAll('.statusSel').forEach(sel => sel.onchange = onStatusChange);
   resultsEl.querySelectorAll('.notesArea').forEach(t => t.oninput = onNotesChange);
   resultsEl.querySelectorAll('.tailorBtn').forEach(b => b.onclick = () => tailorResume(lastJobs[+b.dataset.idx]));
@@ -431,13 +417,9 @@ function onStatusChange(e){
   const status = e.target.value;
   const apps = getJSON(LS.apps, {});
   const job = findJobById(id);
-  if (status === 'Not applied') {
-    if (apps[id]) { delete apps[id]; }
-  } else {
-    apps[id] = { ...(apps[id]||{}), status, job };
-  }
+  if (status === 'Not applied') { if (apps[id]) delete apps[id]; }
+  else apps[id] = { ...(apps[id]||{}), status, job };
   setJSON(LS.apps, apps);
-  // toggle notes visibility
   const notes = resultsEl.querySelector(`.notesArea[data-id="${cssEsc(id)}"]`);
   if (notes) notes.classList.toggle('hidden', status === 'Not applied');
   renderTracker();
@@ -483,17 +465,16 @@ $('csvBtn').onclick = () => {
 
 /* ---------------- tailor résumé ---------------- */
 async function tailorResume(job){
-  if (!get(LS.key)) { showStatus('Add your Anthropic API key first (🔑 button).', 'error'); return; }
+  if (!get(LS.key)) { showStatus('Add your free Gemini API key first (🔑 button).', 'error'); return; }
   const resume = resumeEl.value.trim();
   $('tailorFor').textContent = `For: ${job.title} @ ${job.company}`;
   $('tailorBody').textContent = 'Generating tailored suggestions…';
   $('tailorModal').classList.remove('hidden');
   try {
-    const data = await callAnthropic({
+    const data = await callGemini({
       model: modelSelect.value,
-      max_tokens: 2000,
       system: 'You are a concise resume coach. Output plain text with short sections and bullet points. No preamble.',
-      messages: [{ role:'user', content:
+      user:
 `Tailor this candidate's résumé for the target role. Give: (1) a 2-3 line professional summary aimed at this role, (2) 4-6 rewritten/added résumé bullet points emphasizing the most relevant experience, (3) keywords to include for ATS, (4) the top 1-2 gaps to address.
 
 TARGET ROLE: ${job.title} at ${job.company} (${job.location})
@@ -503,9 +484,11 @@ KNOWN GAPS: ${(job.gaps||[]).join('; ')}
 RÉSUMÉ:
 """
 ${resume}
-"""` }]
+"""`,
+      useSearch: false,
+      maxTokens: 2048
     });
-    $('tailorBody').textContent = textOf(data.content) || 'No suggestions returned.';
+    $('tailorBody').textContent = geminiText(data) || 'No suggestions returned.';
   } catch(err){
     $('tailorBody').textContent = 'Error: ' + err.message;
   }
