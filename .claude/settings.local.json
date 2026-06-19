@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "PowerShell(gh api -X POST \"repos/zohaibahmad-Devops/overseas-job-matcher/pages\" -f \"source[branch]=main\" -f \"source[path]=/\" 2>&1)"
-    ]
-  }
-}
