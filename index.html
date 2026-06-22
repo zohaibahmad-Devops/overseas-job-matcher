@@ -91,8 +91,8 @@
     <div id="results" class="grid sm:grid-cols-2 gap-4"></div>
     <div id="empty" class="text-center text-slate-400 py-20">
       <div class="text-5xl mb-3">🧭</div>
-      <p class="font-medium">Your matched roles will appear here.</p>
-      <p class="text-sm">AI suggests visa-sponsoring employers that fit you. Use the <b>LinkedIn / Google</b> buttons on each card to open the live openings.</p>
+      <p class="font-medium">Your matched jobs will appear here.</p>
+      <p class="text-sm">Live postings from real job boards, scored against your résumé. Click <b>Apply ↗</b> to go straight to the opening.</p>
     </div>
   </section>
 </main>
@@ -226,6 +226,23 @@ async function callAI({ model, system, user, maxTokens=8000, json=false }) {
 }
 function aiText(data){ return data?.choices?.[0]?.message?.content || ''; }
 
+const JOBS_URL = '/.netlify/functions/jobs';
+async function fetchRealJobs(query, locs){
+  const url = JOBS_URL + '?q=' + encodeURIComponent(query) + '&locs=' + encodeURIComponent(locs.join(','));
+  let res;
+  try { res = await fetch(url); } catch(e){ throw new Error('NETWORK'); }
+  if (res.status === 404) throw new Error('NO_PROXY');
+  const d = await res.json().catch(()=>null);
+  if (!res.ok) throw new Error(d?.error?.message || ('HTTP ' + res.status));
+  return d.jobs || [];
+}
+function guessRole(resume){
+  const r = resume.toLowerCase();
+  const roles = ['.net','c#','asp.net','react','angular','vue','node','python','java','php','laravel','devops','full stack','full-stack','backend','frontend','data engineer','software engineer'];
+  const found = roles.filter(x => r.includes(x));
+  return (found.slice(0,3).join(' ') || 'software developer');
+}
+
 function extractJSON(text){
   let m = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   let candidate = m ? m[1] : null;
@@ -264,14 +281,27 @@ async function runSearch() {
 
   const model = modelSelect.value;
   const prefs = prefsEl.value.trim();
+  const query = prefs || guessRole(resume);
 
   setLoading(true);
   hideStatus();
-  showStatus('Matching you to visa-sponsoring employers…', 'info');
+  showStatus('Fetching live job postings…', 'info');
 
-  const system = `You are an expert technical recruiter for international, visa-sponsored software and IT roles. Using your knowledge, suggest specific, real employers in the target locations that (a) hire for software/IT, (b) are well known to sponsor work visas / relocation, and (c) fit this candidate's background. Score fit honestly. These are leads (the user will open live openings via search links), so set realistic role titles those companies actually hire for. Reply ONLY with a JSON object.`;
+  try {
+    // 1) Real, live postings from free job boards (server-side, real apply links)
+    const realJobs = await fetchRealJobs(query, locs);
+    if (!realJobs.length) {
+      renderResults([]);
+      showStatus('No live postings matched these keywords. Try different "Extra preferences" (e.g. a specific stack), then search again.', 'info');
+      return;
+    }
 
-  const userPrompt =
+    // 2) Ask Groq to score the REAL jobs against the résumé
+    showStatus(`Scoring ${realJobs.length} live postings against your résumé…`, 'info');
+    const pool = realJobs.slice(0, 28);
+    const list = pool.map((j,i) => `#${i} ${j.title} @ ${j.company} (${j.location})${j.visa==='Yes'?' [visa sponsored]':''} :: ${j.snippet}`).join('\n');
+    const system = `You are an expert technical recruiter. You are given REAL job postings and a candidate résumé. Score how well each posting fits the candidate. Be honest. Reply ONLY with a JSON object.`;
+    const userPrompt =
 `CANDIDATE RÉSUMÉ:
 """
 ${resume}
@@ -279,36 +309,27 @@ ${resume}
 
 TARGET LOCATIONS: ${locs.join('; ')}
 ${prefs ? 'EXTRA PREFERENCES: ' + prefs + '\n' : ''}
-Return a JSON object with this exact shape (8–12 items, sorted by fit_score descending):
-{
-  "jobs": [
-    {
-      "title": "a role title the company actually hires for, matched to the candidate",
-      "company": "a real, named employer known to sponsor visas in that location",
-      "location": "city, country",
-      "careers_url": "the company's careers page URL if you know it, else null",
-      "salary": "typical range string or null",
-      "visa_sponsorship": "Yes" | "Likely" | "Unclear",
-      "fit_score": 0,
-      "fit_summary": "one concise sentence on why this candidate fits",
-      "matching_skills": ["..."],
-      "gaps": ["..."]
-    }
-  ]
-}
-Only output the JSON object.`;
+REAL JOB POSTINGS (index :: details):
+${list}
 
-  try {
-    const data = await callAI({ model, system, user: userPrompt, maxTokens: 8000, json: true });
-    const text = aiText(data);
-    const parsed = extractJSON(text);
-    if (!parsed || !Array.isArray(parsed.jobs)) {
-      showStatus('Got a response but could not read the matches. Try again or switch model.', 'error');
-      console.warn('Raw model text:', text);
-      return;
+Pick the 8–12 best-fitting postings for this candidate. Return a JSON object:
+{ "matches": [ { "i": <index number from the list>, "fit_score": 0-100, "fit_summary": "one concise sentence", "matching_skills": ["..."], "gaps": ["..."] } ] }
+Sort by fit_score descending. Only include genuinely relevant postings. Output only the JSON object.`;
+
+    const data = await callAI({ model, system, user: userPrompt, maxTokens: 6000, json: true });
+    const parsed = extractJSON(aiText(data));
+    let jobs;
+    if (parsed && Array.isArray(parsed.matches) && parsed.matches.length) {
+      jobs = parsed.matches
+        .filter(m => pool[m.i])
+        .map(m => ({ ...pool[m.i], fit_score: m.fit_score, fit_summary: m.fit_summary, matching_skills: m.matching_skills, gaps: m.gaps }));
+    } else {
+      // scoring failed → still show the real jobs, unscored
+      jobs = pool.slice(0, 12).map(j => ({ ...j, fit_score: 0, fit_summary: 'Live posting (scoring unavailable — try again to rank by fit).' }));
     }
-    renderResults(parsed.jobs);
-    showStatus(`Found ${parsed.jobs.length} matched employers. Use the 🔎 buttons on a card to open live openings.`, 'ok');
+
+    renderResults(jobs);
+    showStatus(`Showing ${jobs.length} live postings. Click “Apply ↗” to go straight to the real opening.`, 'ok');
   } catch (err) {
     showStatus(explainError(err.message), 'error');
     console.error(err);
@@ -318,7 +339,7 @@ Only output the JSON object.`;
 }
 
 /* ---------------- render ---------------- */
-function jobId(job){ return (job.title||'') + '|' + (job.company||''); }
+function jobId(job){ return job.url || ((job.title||'') + '|' + (job.company||'')); }
 function scoreColor(s){
   if (s >= 80) return 'text-green-600 bg-green-50';
   if (s >= 60) return 'text-amber-600 bg-amber-50';
@@ -332,15 +353,13 @@ function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&
 function linkedinUrl(job){
   return 'https://www.linkedin.com/jobs/search/?keywords=' + encodeURIComponent((job.title||'') + ' visa sponsorship') + '&location=' + encodeURIComponent(job.location||'');
 }
-function googleUrl(job){
-  return 'https://www.google.com/search?q=' + encodeURIComponent((job.title||'') + ' ' + (job.company||'') + ' ' + (job.location||'') + ' jobs visa sponsorship');
-}
 
 let lastJobs = [];
 function renderResults(jobs){
   lastJobs = jobs;
-  emptyEl.classList.add('hidden');
   resultsEl.innerHTML = '';
+  if (!jobs.length) { emptyEl.classList.remove('hidden'); return; }
+  emptyEl.classList.add('hidden');
   const apps = getJSON(LS.apps, {});
   jobs.forEach((job, idx) => {
     const id = jobId(job);
@@ -361,16 +380,16 @@ function renderResults(jobs){
         </div>
       </div>
       <div class="flex flex-wrap gap-1.5 mt-2">
-        ${visaBadge(job.visa_sponsorship)}
-        ${job.salary && job.salary!=='null' ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">💷 ${esc(job.salary)}</span>`:''}
+        ${visaBadge(job.visa)}
+        ${job.source ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600">${esc(job.source)}</span>`:''}
+        ${job.posted ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">🕑 ${esc(job.posted)}</span>`:''}
       </div>
       <p class="text-sm text-slate-700 mt-2">${esc(job.fit_summary)}</p>
       ${skills ? `<div class="flex flex-wrap gap-1 mt-2">${skills}</div>`:''}
       ${gaps ? `<details class="mt-2 text-xs text-slate-500"><summary class="cursor-pointer select-none">Gaps to address</summary><ul class="list-disc ml-4 mt-1 space-y-0.5">${gaps}</ul></details>`:''}
       <div class="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+        ${job.url ? `<a href="${esc(job.url)}" target="_blank" rel="noopener" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-brand-600 text-white hover:bg-brand-700">Apply ↗</a>`:''}
         <a href="${linkedinUrl(job)}" target="_blank" rel="noopener" class="text-xs font-medium px-2 py-1 rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100">🔎 LinkedIn</a>
-        <a href="${googleUrl(job)}" target="_blank" rel="noopener" class="text-xs font-medium px-2 py-1 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200">Google</a>
-        ${job.careers_url && job.careers_url!=='null' ? `<a href="${esc(job.careers_url)}" target="_blank" rel="noopener" class="text-xs font-medium text-slate-600 hover:underline">Careers ↗</a>`:''}
         <button class="tailorBtn text-xs font-medium text-slate-600 hover:text-brand-600" data-idx="${idx}">✍️ Tailor</button>
         <select class="statusSel ml-auto text-xs border border-slate-300 rounded-lg px-2 py-1" data-id="${esc(id)}">
           ${['Not applied','Applied','Interview','Offer','Rejected'].map(s=>`<option ${saved.status===s?'selected':''}>${s}</option>`).join('')}
@@ -424,10 +443,10 @@ function renderTracker(){
 
 $('csvBtn').onclick = () => {
   const apps = getJSON(LS.apps, {});
-  const rows = [['Status','Title','Company','Location','Fit','Visa','Salary','Careers','Notes']];
+  const rows = [['Status','Title','Company','Location','Fit','Visa','Source','URL','Notes']];
   Object.values(apps).forEach(a => {
     const j = a.job || {};
-    rows.push([a.status, j.title, j.company, j.location, j.fit_score, j.visa_sponsorship, j.salary, j.careers_url, (a.notes||'').replace(/\n/g,' ')]);
+    rows.push([a.status, j.title, j.company, j.location, j.fit_score, j.visa, j.source, j.url, (a.notes||'').replace(/\n/g,' ')]);
   });
   if (rows.length === 1) { showStatus('No tracked jobs to export yet.', 'info'); return; }
   const csv = rows.map(r => r.map(c => `"${String(c==null?'':c).replace(/"/g,'""')}"`).join(',')).join('\n');

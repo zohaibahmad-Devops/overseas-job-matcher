@@ -5,9 +5,9 @@ A single-file web app that matches your résumé to **live, visa-sponsored softw
 Powered by **Groq (Llama)** — completely free, **no credit card**. The AI matches you to visa-sponsoring employers and scores fit; each card has **LinkedIn / Google** buttons that open the live openings for that role.
 
 ## Features
-- 🎯 AI matches you to named visa-sponsoring employers, with a 0–100 fit score, matching skills, and honest gaps
-- 🔎 **LinkedIn / Google** buttons per card → open the live openings for that role
-- 🛂 Visa-sponsorship indicator
+- 🎯 **Real, live job postings** from free job boards, scored 0–100 against your résumé by AI (matching skills + honest gaps)
+- 🔗 Direct **Apply ↗** link on every card (real opening), plus a LinkedIn search fallback
+- 🛂 Visa-sponsorship indicator (Arbeitnow flag)
 - ✍️ One-click "tailor my résumé" suggestions per job
 - 📌 Application tracker (Applied / Interview / Offer / Rejected) + notes, saved in `localStorage`
 - 📤 Export tracked jobs to CSV
@@ -22,7 +22,11 @@ Powered by **Groq (Llama)** — completely free, **no credit card**. The AI matc
 Set `GROQ_API_KEY` in **Netlify → Site configuration → Environment variables** (your free Groq key). The site's serverless function (`netlify/functions/ai.js`) then uses it for everyone, so visitors need nothing.
 
 ## How it works
-The browser posts your résumé + locations to a Netlify Function (`/.netlify/functions/ai`) which calls the Groq API (`api.groq.com`, OpenAI-compatible) with a free Llama model and returns matched employers as JSON. The key stays server-side; nothing is crawled live, so each card links out to LinkedIn/Google job search for the real-time postings.
+1. The browser asks a Netlify Function (`/.netlify/functions/jobs`) for **real, live postings** from free public job boards (Arbeitnow — EU roles with a visa-sponsorship flag — and Remotive — remote software). No API key needed; fetched server-side to avoid CORS.
+2. Those real postings + your résumé go to a second Netlify Function (`/.netlify/functions/ai`) which calls the Groq API (free Llama model) to **score each posting for fit** and return JSON.
+3. The page renders the real jobs with their **direct Apply links**, the fit score, matching skills, and gaps.
+
+The Groq key stays server-side, so links are real and friends never need a key.
 
 ## Cost
 **Free.** Free static/serverless hosting (Netlify) + Groq's free API tier — no credit card.
